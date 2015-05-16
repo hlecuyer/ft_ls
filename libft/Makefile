@@ -5,14 +5,15 @@
 #                                                     +:+ +:+         +:+      #
 #    By: hlecuyer <hlecuyer@student.42.fr>          +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
-#    Created: 2015/01/30 14:51:13 by hlecuyer          #+#    #+#              #
-#    Updated: 2015/01/30 14:51:13 by hlecuyer         ###   ########.fr        #
+#    Created: 2015/05/15 10:54:00 by hlecuyer          #+#    #+#              #
+#    Updated: 2015/05/15 10:54:00 by hlecuyer         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 NAME=libft.a
 VERSION=1.0.0
 CFLAGS=-Wall -Werror -Wextra -g
+INCLUDES=-I ./includes
 
 SRC=ft_atoi.c \
 	ft_bzero.c \
@@ -81,7 +82,7 @@ all: $(NAME) finish
 $(NAME): $(OBJ)
 	ar rc $(NAME) $(OBJ)
 
-%.o: %.c libft.h
+%.o: %.c ./includes
 	gcc $(CFLAGS) $(INCLUDES) -o $@ -c $<
 
 clean:
