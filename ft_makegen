@@ -1,0 +1,528 @@
+#!/bin/sh
+
+# config file use
+CONFIG_FILE=~/.makegenrc
+
+# define global use
+IS_LIB=0
+BUILD=0
+NAME=""
+
+function question_yn
+{
+	echo "$1 [y/n]: \c" > /dev/tty
+	read yn
+	yn=`echo $yn | tr '[:upper:]' '[:lower:]'`
+	if [ "$yn" = "yes" ] || [ "$yn" = "y" ] || [ "$yn" = "o" ] || [ "$yn" = "oui" ]; then
+		rep=1
+		return 1;
+	fi
+	rep=0
+	return 0;
+}
+
+function warnnig_msg
+{
+	echo "\033[33mWarnnig\033[0m: $1" >&2
+}
+
+function error_msg
+{
+	echo "\033[31mError\033[0m: $1" >&2
+}
+
+function quit
+{
+	mv .Makefile.old Makefile
+	ERROR=1
+	exit $1
+}
+
+function error_quit
+{
+	error_msg "$1"
+	quit -1
+}
+
+function list_include_used
+{
+	RES=`grep "^ *# *include *\"[A-Za-z0-9_\-\.]*\"$" *.c *.h 2> /dev/null | cut -d : -f 2 | cut -d '"' -f 2 | sort | uniq`
+}
+
+function find_include
+{
+	if [ -z $directory_to_search ]; then
+		dir="."
+		RES=""
+	else
+		dir=$directory_to_search
+	fi
+	for include in $@
+	do
+		path_include=`find $dir -name "$include"`
+		nb_include_found=`echo "$path_include" | grep / | wc -l | bc`
+		if [ $nb_include_found = 0 ]; then
+			warnnig_msg "include \"$include\" not found."
+			question_yn "I can search more. If you want enter yes"
+			if [ $rep -eq 1 ]; then
+				if [ $dir = "." ]; then
+					directory_to_search="$directory_to_search.."
+				else
+					directory_to_search="$directory_to_search/.."
+				fi
+				find_include $include
+				dir="."
+			else
+				quit -1
+			fi
+		elif [ 1 -lt $nb_include_found ]; then
+			error_quit "fail multiple file found [$nb_include_found] for include \"$include\"."
+		else
+			RES="$RES$path_include "
+		fi
+	done
+}
+
+function find_makefile
+{
+	RES=""
+	for dir_makefile in $@
+	do
+		while ! [ -f "$dir_makefile/Makefile" ] && ! [ "$dir_makefile" = "." ];
+		do
+			if [ -z $dir_makefile ]; then
+				error_msg "error to get dirname of $header"
+			fi
+			dir_makefile=`dirname "$dir_makefile" 2> /dev/null`
+		done
+		if [ $dir_makefile = "." ]; then
+			warnnig_msg "no Makefile found for $header"
+		else
+			RES="$RES$dir_makefile/Makefile "
+		fi
+	done
+}
+
+function get_name_makefile
+{
+	for makefile in $@
+	do
+		if ! [ -f $makefile ]; then continue; fi
+		name=`cat $makefile | grep "^\t*NAME=[a-zA-B0-9\.\-_]\+$" | cut -d '=' -f 2`
+		if [[ -z $name ]]; then
+			warnnig_msg "no var NAME found in \"$makefile\""
+		else
+			echo "$name"
+		fi
+	done
+}
+
+function get_lib_by_Makefile
+{
+	RES=""
+	for makefile in $@
+	do
+		name=`get_name_makefile $makefile 2> /dev/null`
+		if ! [ -z $name ]; then
+			dir_makefile=`dirname $makefile 2> /dev/null`
+			if [ -z $dir_makefile ]; then
+				warnnig_msg "dir name error"
+			else
+				RES="$RES$dir_makefile/$name "
+			fi
+		fi
+	done
+}
+
+function convert_include_to_I
+{
+	includes=""
+	for dir_header in $@
+	do
+		includes="$includes-I $dir_header "
+	done
+	RES=$includes
+}
+
+function convert_lib_to_Ll
+{
+	library=""
+	for lib in $@
+	do
+		liba=`basename $lib | cut -d '.' -f 1`
+		liba=`echo $liba | sed -E "s/^lib//g"`
+		lib=`dirname $lib`
+		library="$library-L $lib -l $liba "
+	done
+	RES=$library
+}
+
+function count_main
+{
+	nb_main=$(grep -e "^[	 ]*int[	 ]\+main[	 ]*(.*)[	 ]*$" *.c + 2> /dev/null | grep : | wc -l | bc)
+	echo $nb_main
+}
+
+function set_is_lib
+{
+	nb_main=`count_main`
+	if [ 1 -lt $nb_main ]
+	then
+		error_quit "Multiple function \"main\" found."
+	elif [ 1 -eq $nb_main ]
+	then
+		IS_LIB=0
+	else
+		question_yn "Function \"main\" never found. You would create lib ?"
+		if [ $rep -eq 1 ]
+		then
+			IS_LIB=1
+		else
+			quit 1
+		fi
+	fi
+}
+
+function get_name
+{
+	if [ -f $1 ]
+	then
+		name=$(get_name_makefile $1 | cut -d '.' -f 1)
+	else
+		name=$(basename `pwd`)
+	fi
+	if [ $IS_LIB -eq 1 ]
+	then
+		echo "$name.a"
+	else
+		echo "$name"
+	fi
+}
+
+function save_makefile
+{
+	mv Makefile .Makefile.old 2> /dev/null
+}
+
+function header_42
+{
+	START_LINE='#  '
+	END_LINE='  #'
+	START_LINE_SPE='# *'
+	END_LINE_SPE='* #'
+	LINE_1='***********************************************'
+	LINE_2='                                               '
+	LINE_3='                                               '
+	LINE_4='  '$1
+	LINE_5='                                               '
+	LINE_6='  By: '$USER' <'$MAIL'>'
+	LINE_7='                                               '
+	LINE_8='  Created: '
+	LINE_9='  Updated: '
+	LINE_10='                                               '
+
+	END_LINE_1="***************************"
+	END_LINE_2="                           "
+	END_LINE_3="        :::      ::::::::  "
+	END_LINE_4="      :+:      :+:    :+:  "
+	END_LINE_5="    +:+ +:+         +:+    "
+	END_LINE_6="  +#+  +:+       +#+       "
+	END_LINE_7="+#+#+#+#+#+   +#+          "
+	END_LINE_8="     #+#    #+#            "
+	END_LINE_9="    ###   ########.fr      "
+
+	DATE=$(date '+%Y/%m/%d %X')' by '$USER
+	LINE_8=$LINE_8$DATE
+	LINE_9=$LINE_9$DATE
+	LEN_LINE_4=${#LINE_4}
+	LEN_LINE_6=${#LINE_6}
+	LEN_LINE_8=${#LINE_8}
+	LEN_LINE_9=${#LINE_9}
+	while [ "$LEN_LINE_4" -ne "47" ]
+	do
+			LINE_4=$LINE_4' '
+			LEN_LINE_4=$(expr $LEN_LINE_4 + 1)
+	done
+	while [ "$LEN_LINE_6" -ne "47" ]
+	do
+			LINE_6=$LINE_6' '
+			LEN_LINE_6=$(expr $LEN_LINE_6 + 1)
+	done
+	while [ "$LEN_LINE_8" -ne "47" ]
+	do
+			LINE_8=$LINE_8' '
+			LEN_LINE_8=$(expr $LEN_LINE_8 + 1)
+	done
+	while [ "$LEN_LINE_9" -ne "47" ]
+	do
+			LINE_9=$LINE_9' '
+			LEN_LINE_9=$(expr $LEN_LINE_9 + 1)
+	done
+	echo "$START_LINE_SPE$LINE_1$END_LINE_1$END_LINE_SPE"
+	echo "$START_LINE$LINE_2$END_LINE_2$END_LINE"
+	echo "$START_LINE$LINE_3$END_LINE_3$END_LINE"
+	echo "$START_LINE$LINE_4$END_LINE_4$END_LINE"
+	echo "$START_LINE$LINE_5$END_LINE_5$END_LINE"
+	echo "$START_LINE$LINE_6$END_LINE_6$END_LINE"
+	echo "$START_LINE$LINE_7$END_LINE_7$END_LINE"
+	echo "$START_LINE$LINE_8$END_LINE_8$END_LINE"
+	echo "$START_LINE$LINE_9$END_LINE_9$END_LINE"
+	echo "$START_LINE$LINE_10$END_LINE_2$END_LINE"
+	echo "$START_LINE_SPE$LINE_1$END_LINE_1$END_LINE_SPE\n"
+}
+
+function read_version_makefile
+{
+	if ! [ -f $1 ]; then return; fi
+	grep "VERSION=" $1 | cut -d '=' -f 2
+}
+
+function next_version_of_makefile
+{
+	version=`read_version_makefile $1`
+	version1=`echo $version | cut -d '.' -f 1`
+	version2=`echo $version | cut -d '.' -f 2`
+	version3=`echo $version | cut -d '.' -f 3`
+	if ! [ -z $version1 ] || ! [ -z $version2 ] || ! [ -z $version1 ]
+	then
+		if [[ "$version3" -lt 9 ]]
+		then
+			((version3=$version3 + 1))
+		else
+			version3=0
+			if [[ "$version2" -lt 5 ]]
+			then
+				((version2=$version2 + 1))
+			else
+				((version2=0))
+				((version1=$version1 + 1))
+			fi
+		fi
+		version="$version1.$version2.$version3"
+	else
+		version=1.0.0
+	fi
+	echo $version
+}
+
+function all_source_c
+{
+	RES=`ls *.c | perl -i -p -e 's/\n/ \\\\\n\t/g' | perl -i -p -e 's/\t$//g'`;
+}
+
+function build_regle
+{
+	echo "build:"
+	for makefile in $@
+	do
+		dir_makefile=`dirname $makefile`
+		echo "\t@(\$(MAKE) -C $dir_makefile)"
+	done
+}
+
+function all_regle
+{
+	if [ $BUILD -eq 1 ]
+	then
+		echo "all: build \$(NAME) finish"
+	else
+		echo "all: \$(NAME) finish"
+	fi
+}
+
+function name_regle
+{
+	echo "\$(NAME): \$(OBJ)" $@
+	if [ $IS_LIB -eq 1 ]; then
+		echo "\tar rc \$(NAME) \$(OBJ)"
+	else
+		echo "\tgcc \$(CFLAGS) \$(INCLUDES) \$(LIBS) -o \$(NAME) \$(OBJ)"
+	fi
+}
+
+function obj_regle
+{
+	include=`echo $@ | sed -E "s/-I //g"`
+	echo "%.o: %.c" `ls *.h 2> /dev/null` $include
+	echo "\tgcc \$(CFLAGS) \$(INCLUDES) -o \$@ -c \$<"
+}
+
+function clean_regle
+{
+	echo "clean:"
+	echo "\t@(rm -rf \$(OBJ))"
+}
+
+function fclean_regle
+{
+	echo "fclean: clean"
+	echo "\t@(rm -rf \$(NAME))"
+}
+
+function re_regle
+{
+	echo "re: fclean all"
+}
+
+function finish_regle
+{
+	echo "finish:"
+	echo "\t@(echo \"[\\\\\\\\033[32m\$(NAME)\\\\\\\\033[00m]\")"
+}
+
+function version_regle
+{
+	echo "v:"
+	echo "\t@(echo \"version: \$(VERSION)\")"
+}
+
+function read_other_lst_include_I
+{
+	RES=""
+	for option in $@
+	do
+		op=`grep "$option"_I $CONFIG_FILE 2> /dev/null | grep =`
+		count=`grep "$option"_I $CONFIG_FILE 2> /dev/null | grep = | wc -l | bc`
+		op=`echo "$op" | cut -d '=' -f 2`
+		if [ 1 -lt $count ]; then
+			error_quit "multiple option: ""$option""_I found in $CONFIG_FILE"
+		elif [ 1 -eq $count ]; then
+			RES="$RES$op "
+		else
+			warnnig_msg "not found option: ""$option""_I in $CONFIG_FILE"
+		fi
+	done
+}
+
+function read_other_lib_to_Ll
+{
+	RES=""
+	for option in $@
+	do
+		op=`grep "$option"_L $CONFIG_FILE 2> /dev/null | grep =`
+		count=`grep "$option"_L $CONFIG_FILE 2> /dev/null | grep = | wc -l | bc`
+		op=`echo "$op" | cut -d '=' -f 2`
+		if [ 1 -lt $count ]; then
+			error_quit "multiple option: ""$option""_L found in $CONFIG_FILE"
+		elif [ 1 -eq $count ]; then
+			RES="$RES$op "
+		else
+			warnnig_msg "not found option: ""$option""_L in $CONFIG_FILE"
+		fi
+	done
+}
+
+function f_all_include_I
+{
+	RES=`echo $@`
+}
+
+function f_all_lib_Ll
+{
+	RES=`echo $@`
+}
+
+function cut_include_get_dir
+{
+	for header in $@
+	do
+		dir_header=`dirname $header`
+		if [ $dir_header = "." ]; then continue ; fi
+		echo $dir_header
+	done
+}
+
+function list_include_get_dir
+{
+	RES=`cut_include_get_dir $@ | sort | uniq`
+}
+
+# check we create Makefile for lib or not
+set_is_lib
+
+# give name read in Makefile or by default dir name
+NAME=`get_name Makefile`
+
+# give next version of Makefile
+VERSION=`next_version_of_makefile Makefile`
+
+# savegarde makefile to .Makefile.save
+save_makefile
+
+list_include_used
+lst_include_used="$RES"
+find_include $lst_include_used
+lst_path_include="$RES"
+list_include_get_dir $lst_path_include
+dir_include_used="$RES"
+if [ $IS_LIB -eq 0 ]; then
+	find_makefile $dir_include_used
+	lst_makefile="$RES"
+	get_lib_by_Makefile $lst_makefile
+	lst_library="$RES"
+	convert_lib_to_Ll $lst_library
+	lst_lib_Ll="$RES"
+	read_other_lib_to_Ll $@
+	other_lib_to_Ll="$RES"
+fi
+convert_include_to_I $dir_include_used
+lst_include_I="$RES"
+read_other_lst_include_I $@
+other_lst_include_I="$RES"
+all_source_c
+all_source="$RES"
+f_all_include_I $lst_include_I $other_lst_include_I
+all_include_I="$RES"
+f_all_lib_Ll $lst_lib_Ll $other_lib_to_Ll
+all_lib_Ll="$RES"
+
+if ! [[ -z $lst_makefile ]]
+then
+	BUILD=1
+fi
+
+if [[ $ERROR -eq 1 ]]
+then
+	exit 1
+fi
+
+# export header to new Makefile
+echo "`header_42 Makefile`"							>> Makefile
+echo ""												>> Makefile
+echo "NAME=$NAME"									>> Makefile
+echo "VERSION=$VERSION"								>> Makefile
+echo "CFLAGS=-Wall -Werror -Wextra -g"				>> Makefile
+if ! [[ -z $lst_include_I ]]; then
+	echo "INCLUDES=$all_include_I"					>> Makefile
+fi
+if [ $BUILD -eq 1 ]; then
+	echo "LIBS=$all_lib_Ll"							>> Makefile
+fi
+echo ""												>> Makefile
+echo "SRC=$all_source"								>> Makefile
+echo ""												>> Makefile
+echo "OBJ=\$(SRC:.c=.o)"							>> Makefile
+echo ""												>> Makefile
+echo "`all_regle $lst_include_I`"					>> Makefile
+echo ""												>> Makefile
+if [ $BUILD -eq 1 ]; then
+	echo "`build_regle $lst_makefile`\n"			>> Makefile
+fi
+echo "`name_regle $lst_library`"					>> Makefile
+echo ""												>> Makefile
+echo "`obj_regle $lst_include_I`"					>> Makefile
+echo ""												>> Makefile
+echo "`clean_regle`"								>> Makefile
+echo ""												>> Makefile
+echo "`fclean_regle`"								>> Makefile
+echo ""												>> Makefile
+echo "`re_regle`"									>> Makefile
+echo ""												>> Makefile
+echo "`version_regle`"								>> Makefile
+echo ""												>> Makefile
+echo "`finish_regle`"								>> Makefile
+echo ""												>> Makefile
+echo ".PHONY: all build clean fclean re v\n"		>> Makefile
+
+echo "Makefile is create [version: \033[32m$VERSION\033[0m]"
+
