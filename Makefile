@@ -5,18 +5,19 @@
 #                                                     +:+ +:+         +:+      #
 #    By: hlecuyer <hlecuyer@student.42.fr>          +#+  +:+       +#+         #
 #                                                 +#+#+#+#+#+   +#+            #
-#    Created: 2015/05/15 10:51:40 by hlecuyer          #+#    #+#              #
-#    Updated: 2015/05/15 10:51:40 by hlecuyer         ###   ########.fr        #
+#    Created: 2015/05/18 12:01:59 by hlecuyer          #+#    #+#              #
+#    Updated: 2015/05/18 12:01:59 by hlecuyer         ###   ########.fr        #
 #                                                                              #
 # **************************************************************************** #
 
 NAME=ft_ls
-VERSION=1.0.0
+VERSION=1.0.1
 CFLAGS=-Wall -Werror -Wextra -g
-INCLUDES=-I ./libft/includes
+INCLUDES=-I ./includes -I ./libft/includes
 LIBS=-L ./libft -l ft
 
-SRC=main.c \
+SRC=loption.c \
+	main.c \
 
 OBJ=$(SRC:.c=.o)
 
@@ -28,7 +29,7 @@ build:
 $(NAME): $(OBJ) ./libft/libft.a
 	gcc $(CFLAGS) $(INCLUDES) $(LIBS) -o $(NAME) $(OBJ)
 
-%.o: %.c ./libft/includes
+%.o: %.c ./includes ./libft/includes
 	gcc $(CFLAGS) $(INCLUDES) -o $@ -c $<
 
 clean:
